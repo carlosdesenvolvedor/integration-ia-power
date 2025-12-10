@@ -19,7 +19,35 @@ O sistema opera em uma arquitetura de microsserviços local:
 
 ---
 
-## 📋 Funcionalidades
+## � Screenshots do Frontend
+
+### Dashboard Principal
+Visão centralizada para acesso rápido aos assistentes de IA e gerenciamento de banco de dados.
+![Tela Home](docs/tela-home.jpeg)
+
+### Navegação Intuitiva
+Barra de ferramentas moderna para alternar entre contextos e configurações.
+![AppBar](docs/home-AppBar.jpeg)
+
+### Gerenciamento de Tabelas
+Visualize e gerencie todas as tabelas criadas pela IA em uma única interface.
+![Tabelas Criadas](docs/tabelas-criadas.jpeg)
+
+### Exploração de Dados
+Interface rica para visualizar, filtrar e interagir com os dados das tabelas geradas.
+![Data Explorer](docs/crud_tabela_na_interface.jpeg)
+
+### Poder da IA
+Criação e configuração de agentes LLM com capacidades estendidas para o seu negócio.
+![LLM Power](docs/criador_LLMs_com_novos_poderes.jpeg)
+
+### API Endpoints
+Endpoints documentados e estruturados para integração direta.
+![Endpoints](docs/endpoints.jpeg)
+
+---
+
+## �📋 Funcionalidades
 
 ### 🛠️ Para Desenvolvedores (Aceleradores)
 

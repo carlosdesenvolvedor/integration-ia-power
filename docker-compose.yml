@@ -1,0 +1,45 @@
+version: '3'
+
+services:
+  app:
+    image: hyperf/hyperf:8.2-alpine-v3.19-swoole
+    volumes:
+      - ./:/var/www
+    working_dir: /var/www
+    ports:
+      - 9600:9501
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    tty: true
+    command: php bin/hyperf.php start
+    depends_on:
+      - mysql
+    environment:
+      - DB_HOST=mysql
+      - DB_DATABASE=integration_db
+      - DB_USERNAME=root
+      - DB_PASSWORD=root
+      - REDIS_HOST=redis
+      - REDIS_AUTH=(null)
+      - REDIS_PORT=6379
+      - DB_CACHE_TTL=3600
+
+  mysql:
+    image: mysql:8.0
+    ports:
+      - 3310:3306
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=integration_db
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  redis:
+    image: redis:alpine
+    ports:
+      - 6380:6379
+
+volumes:
+  mysql_data:
+
+

@@ -36,7 +36,8 @@ class DatabaseMappingListener implements ListenerInterface
             
             $this->logger->info("[AI Power] ✅ Mapeamento concluído em {$duration}ms. Schema pronto para uso.");
         } catch (\Throwable $e) {
-            $this->logger->error("[AI Power] ❌ Falha ao mapear banco de dados: " . $e->getMessage());
+            // Em ambientes sem banco (ex: Stateless no Render), apenas ignoramos graciosamente
+            $this->logger->warning("[AI Power] ⚠️ Base de dados não disponível. Funcionalidades SQL estarão desativadas.");
         }
     }
 }

@@ -1,0 +1,34 @@
+services:
+  # Serviço da API (PHP/Hyperf)
+  - type: web
+    name: integration-ai-power
+    runtime: docker
+    plan: free # Tier gratuito do Render
+    region: oregon 
+    envVars:
+      - key: APP_ENV
+        value: prod
+      # Desativa log de SQL para não poluir
+      - key: DB_LOG_SQL
+        value: "false"
+      # Configurações do "Banco Fake" para o Hyperf não reclamar no boot
+      # Se ele tentar conectar, vai falhar nas rotas de banco, mas o app sobe.
+      - key: DB_DRIVER
+        value: mysql
+      - key: DB_HOST
+        value: 127.0.0.1
+      - key: DB_DATABASE
+        value: none
+      - key: DB_USERNAME
+        value: none
+      - key: DB_PASSWORD
+        value: none
+      # Configurações de API e Segurança
+      - key: OPENAI_API_KEY
+        sync: false # Cole sua chave da OpenAI/Groq aqui no painel do Render
+      - key: OPENAI_BASE_URL
+        value: https://api.groq.com/openai/v1 # Ou https://api.openai.com/v1
+      - key: OPENAI_MODEL
+        value: llama-3.3-70b-versatile    # Ou gpt-4o-mini
+      - key: API_ACCESS_TOKEN
+        generateValue: true # O Render vai gerar uma senha segura automaticamente para você usar

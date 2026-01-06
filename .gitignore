@@ -8,6 +8,9 @@ runtime/
 vendor/
 .phpintel/
 .env
+.env.*
+vast_keys*
+*.env
 .DS_Store
 .phpunit*
 *.cache

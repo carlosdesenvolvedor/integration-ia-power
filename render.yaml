@@ -25,7 +25,9 @@ services:
         value: none
       # Configurações de API e Segurança
       - key: OPENAI_API_KEY
-        sync: false # Cole sua chave da OpenAI/Groq aqui no painel do Render
+        sync: false # Cole sua chave da OpenAI no painel
+      - key: GROQ_API_KEY
+        sync: false # Cole sua chave da Groq no painel
       - key: OPENAI_BASE_URL
         value: https://api.groq.com/openai/v1 # Ou https://api.openai.com/v1
       - key: OPENAI_MODEL

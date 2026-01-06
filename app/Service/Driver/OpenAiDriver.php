@@ -17,9 +17,9 @@ class OpenAiDriver implements LlmDriverInterface
     public function __construct(Client $client)
     {
         $this->client = $client;
-        $this->apiKey = getenv('OPENAI_API_KEY') ?: '';
+        $this->apiKey = trim(getenv('OPENAI_API_KEY') ?: '');
         $this->model = getenv('OPENAI_MODEL') ?: 'gpt-4o-mini';
-        $this->baseUrl = getenv('OPENAI_BASE_URL') ?: 'https://api.openai.com/v1';
+        $this->baseUrl = trim(getenv('OPENAI_BASE_URL') ?: 'https://api.openai.com/v1');
     }
 
     public function generateSql(string $prompt): string

@@ -12,11 +12,14 @@ use Psr\Http\Server\RequestHandlerInterface;
 
 class CorsMiddleware implements MiddlewareInterface
 {
+    public function __construct(protected \Hyperf\HttpServer\Contract\ResponseInterface $response)
+    {
+    }
+
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
         if ($request->getMethod() === 'OPTIONS') {
-            $response = Context::get(ResponseInterface::class);
-            return $this->addCorsHeaders($response);
+            return $this->addCorsHeaders($this->response->withStatus(204));
         }
 
         $response = $handler->handle($request);
@@ -28,7 +31,8 @@ class CorsMiddleware implements MiddlewareInterface
         return $response
             ->withHeader('Access-Control-Allow-Origin', '*')
             ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, HEAD')
-            ->withHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-KEY, DNT, Keep-Alive, User-Agent, X-Requested-With, If-Modified-Since, Cache-Control')
-            ->withHeader('Access-Control-Max-Age', '1728000');
+            ->withHeader('Access-Control-Allow-Headers', '*')
+            ->withHeader('Access-Control-Expose-Headers', '*')
+            ->withHeader('Access-Control-Max-Age', '3600');
     }
 }

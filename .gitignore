@@ -17,3 +17,12 @@ vast_keys*
 .vscode/
 /phpstan.neon
 /phpunit.xml
+unity_avatar_engine/
+unity_scripts/
+frontend/
+*.zip
+*.jpeg
+*.jpg
+*.png
+bkp_scripts/
+._remote_*

@@ -376,42 +376,87 @@ class AIController
     }
 
     #[PostMapping(path: '/ai/analyze-pdf')]
+    #[PostMapping(path: '/ai/analyze_pdf')]
     public function analyzePdf(RequestInterface $request, ResponseInterface $response)
     {
         $file = $request->file('pdf');
-        $question = $request->input('question', 'Resuma este documento e extraia os pontos principais.');
-
         if (!$file || !$file->isValid()) {
             return $response->json(['error' => 'Arquivo PDF válido é obrigatório'])->withStatus(400);
         }
 
+        $vision = $request->input('vision', 'true') === 'true';
+
         try {
-            $parser = new \Smalot\PdfParser\Parser();
-            $pdf = $parser->parseFile($file->getRealPath());
-            $text = $pdf->getText();
-
-            // Limpeza de texto: remover espaços excessivos e quebras de linha múltiplas
-            $text = preg_replace('/\s+/', ' ', $text);
-
-            // Truncate text if too long (e.g., ~20k chars for safety with Groq/OpenAI context)
-            if (mb_strlen($text) > 20000) {
-                $text = mb_substr($text, 0, 20000) . "... [O texto foi truncado devido ao tamanho]";
+            if ($vision) {
+                return $this->analyzePdfVision($file, $response);
             }
 
-            $prompt = "Analise o seguinte conteúdo extraído de um PDF e responda à pergunta do usuário.\n\n" .
-                      "[CONTEÚDO DO DOCUMENTO]:\n" . $text . "\n\n" .
-                      "[PERGUNTA DO USUÁRIO]: " . $question . "\n\n" .
-                      "Responda em Português de forma profissional.";
+            // Fallback para texto puro se vision for false
+            $parser = new \Smalot\PdfParser\Parser();
+            $pdf = $parser->parseFile($file->getRealPath());
+            $text = preg_replace('/\s+/', ' ', $pdf->getText());
             
-            $reply = $this->ollamaService->chat($prompt);
+            $reply = $this->ollamaService->chat("Analise este texto de PDF:\n" . mb_substr($text, 0, 10000));
+            return $response->json(['reply' => $reply]);
 
-            return $response->json([
-                'message' => 'PDF analisado com sucesso',
-                'reply' => $reply,
-                'text_length' => mb_strlen($text)
-            ]);
         } catch (\Throwable $e) {
             return $response->json(['error' => 'Falha ao analisar PDF: ' . $e->getMessage()])->withStatus(500);
+        }
+    }
+
+    private function analyzePdfVision($file, ResponseInterface $response)
+    {
+        $pdfPath = $file->getRealPath();
+        $tempDir = BASE_PATH . '/runtime/temp_vision';
+        if (!is_dir($tempDir)) mkdir($tempDir, 0777, true);
+        
+        $outputImagePath = $tempDir . '/' . uniqid() . '.jpg';
+
+        try {
+            // 1. Converter PDF para Imagem
+            $pdf = new \Spatie\PdfToImage\Pdf($pdfPath);
+            $pdf->selectPage(1)->save($outputImagePath);
+
+            $imageBase64 = base64_encode(file_get_contents($outputImagePath));
+
+            // 2. Chamar IA com Visão
+            $prompt = "Você é um especialista em extração de dados. Analise esta imagem.\n" .
+                      "Para cada produto extraia um JSON:\n" .
+                      "- nome, codigo, preco, unidade\n" .
+                      "- box: [ymin, xmin, ymax, xmax] em % da imagem total para a FOTO do produto.\n\n" .
+                      "Retorne apenas o JSON puro (array de objetos).";
+
+            $reply = $this->ollamaService->chatWithVision($prompt, $imageBase64);
+            $products = json_decode($reply, true) ?: (preg_match('/\[.*\]/s', $reply, $m) ? json_decode($m[0], true) : []);
+
+            if (!$products) throw new \Exception("IA não retornou dados válidos: " . $reply);
+
+            // 3. Recortar Imagens
+            $manager = \Intervention\Image\ImageManager::gd();
+            $img = $manager->read($outputImagePath);
+            $width = $img->width();
+            $height = $img->height();
+
+            foreach ($products as &$product) {
+                if (isset($product['box'])) {
+                    $p = $product['box'];
+                    $y1 = ($p[0] / 100) * $height;
+                    $x1 = ($p[1] / 100) * $width;
+                    $ch = (($p[2] - $p[0]) / 100) * $height; // ymax - ymin
+                    $cw = (($p[3] - $p[1]) / 100) * $width;  // xmax - xmin
+
+                    $crop = clone $img;
+                    $crop->crop((int)$cw, (int)$ch, (int)$x1, (int)$y1);
+                    $product['imageBase64'] = base64_encode((string)$crop->toJpeg());
+                }
+            }
+
+            @unlink($outputImagePath);
+            return $response->json(['products' => $products]);
+
+        } catch (\Throwable $e) {
+            @unlink($outputImagePath);
+            throw $e;
         }
     }
 

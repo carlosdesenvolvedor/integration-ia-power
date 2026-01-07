@@ -160,6 +160,11 @@ class OllamaDriver implements LlmDriverInterface
         }
     }
 
+    public function chatWithVision(string $message, string $imageBase64): string
+    {
+        throw new \RuntimeException("O driver Ollama local não suporta visão. Use o driver OpenAI/Groq para esta funcionalidade.");
+    }
+
     private function callGenerate(array $json): string
     {
         try {

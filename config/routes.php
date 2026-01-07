@@ -16,5 +16,3 @@ Router::addRoute(['GET', 'POST', 'HEAD'], '/', 'App\Controller\IndexController@i
 Router::get('/favicon.ico', function () {
     return '';
 });
-
-Router::post('/ai/analyze-pdf', 'App\Controller\AIController@analyzePdf');

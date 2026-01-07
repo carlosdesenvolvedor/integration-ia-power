@@ -414,21 +414,25 @@ class AIController
         $tempDir = BASE_PATH . '/runtime/temp_vision';
         if (!is_dir($tempDir)) mkdir($tempDir, 0777, true);
         
-        $outputImagePath = $tempDir . '/' . uniqid() . '.jpg';
+        $outputImagePath = $tempDir . '/' . uniqid() . '.png';
 
         try {
-            // 1. Converter PDF para Imagem
+            // 1. Converter PDF para Imagem com alta resolução (150 DPI)
             $pdf = new \Spatie\PdfToImage\Pdf($pdfPath);
+            $pdf->setResolution(150);
+            $pdf->setFormat('png');
             $pdf->selectPage(1)->save($outputImagePath);
 
             $imageBase64 = base64_encode(file_get_contents($outputImagePath));
 
-            // 2. Chamar IA com Visão
-            $prompt = "Você é um especialista em extração de dados. Analise esta imagem.\n" .
-                      "Para cada produto extraia um JSON:\n" .
-                      "- nome, codigo, preco, unidade\n" .
-                      "- box: [ymin, xmin, ymax, xmax] em % da imagem total para a FOTO do produto.\n\n" .
-                      "Retorne apenas o JSON puro (array de objetos).";
+            // 2. Chamar IA com Visão - Prompt mais rigoroso para recortar apenas a FOTO
+            $prompt = "Você é um robô de visão computacional especialista em catálogos.\n" .
+                      "Para cada produto identifique:\n" .
+                      "- Nome completa, Código, Preço e Unidade.\n" .
+                      "- box: As coordenadas EXATAS da FOTO do produto (geralmente um quadrado à esquerda ou direita do texto). NAO inclua o texto/descrição no box.\n\n" .
+                      "Formato do box: [ymin, xmin, ymax, xmax] em porcentagem (0 a 100).\n" .
+                      "IMPORTANTE: Se o produto não tiver foto, ignore-o ou deixe o box vazio.\n" .
+                      "Retorne APENAS um JSON (lista de objetos).";
 
             $reply = $this->ollamaService->chatWithVision($prompt, $imageBase64);
             $products = json_decode($reply, true) ?: (preg_match('/\[.*\]/s', $reply, $m) ? json_decode($m[0], true) : []);
@@ -441,16 +445,20 @@ class AIController
             $width = $img->width();
             $height = $img->height();
 
+            $logger = $this->container->get(\Hyperf\Logger\LoggerFactory::class)->get('ai');
+            
             foreach ($products as &$product) {
-                if (isset($product['box'])) {
+                if (isset($product['box']) && count($product['box']) === 4) {
                     $p = $product['box'];
+                    $logger->info("Cropping: " . ($product['nome'] ?? 'unnamed') . " Box: " . json_encode($p));
+                    
                     $y1 = ($p[0] / 100) * $height;
                     $x1 = ($p[1] / 100) * $width;
-                    $ch = (($p[2] - $p[0]) / 100) * $height; // ymax - ymin
-                    $cw = (($p[3] - $p[1]) / 100) * $width;  // xmax - xmin
+                    $ch = (($p[2] - $p[0]) / 100) * $height;
+                    $cw = (($p[3] - $p[1]) / 100) * $width;
 
                     $crop = clone $img;
-                    $crop->crop((int)$cw, (int)$ch, (int)$x1, (int)$y1);
+                    $crop->crop((int)round($cw), (int)round($ch), (int)round($x1), (int)round($y1));
                     $product['imageBase64'] = base64_encode((string)$crop->toJpeg());
                 }
             }

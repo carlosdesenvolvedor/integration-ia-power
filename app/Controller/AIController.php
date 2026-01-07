@@ -375,6 +375,47 @@ class AIController
         }
     }
 
+    #[PostMapping(path: '/ai/analyze-pdf')]
+    public function analyzePdf(RequestInterface $request, ResponseInterface $response)
+    {
+        $file = $request->file('pdf');
+        $question = $request->input('question', 'Resuma este documento e extraia os pontos principais.');
+
+        if (!$file || !$file->isValid()) {
+            return $response->json(['error' => 'Arquivo PDF válido é obrigatório'])->withStatus(400);
+        }
+
+        try {
+            $parser = new \Smalot\PdfParser\Parser();
+            $pdf = $parser->parseFile($file->getRealPath());
+            $text = $pdf->getText();
+
+            // Limpeza de texto: remover espaços excessivos e quebras de linha múltiplas
+            $text = preg_replace('/\s+/', ' ', $text);
+
+            // Truncate text if too long (e.g., ~20k chars for safety with Groq/OpenAI context)
+            if (mb_strlen($text) > 20000) {
+                $text = mb_substr($text, 0, 20000) . "... [O texto foi truncado devido ao tamanho]";
+            }
+
+            $prompt = "Analise o seguinte conteúdo extraído de um PDF e responda à pergunta do usuário.\n\n" .
+                      "[CONTEÚDO DO DOCUMENTO]:\n" . $text . "\n\n" .
+                      "[PERGUNTA DO USUÁRIO]: " . $question . "\n\n" .
+                      "Responda em Português de forma profissional.";
+            
+            $reply = $this->ollamaService->chat($prompt);
+
+            return $response->json([
+                'message' => 'PDF analisado com sucesso',
+                'reply' => $reply,
+                'text_length' => mb_strlen($text)
+            ]);
+        } catch (\Throwable $e) {
+            return $response->json(['error' => 'Falha ao analisar PDF: ' . $e->getMessage()])->withStatus(500);
+        }
+    }
+
+
     #[PostMapping(path: '/ai/migrate')]
     public function migrate(RequestInterface $request, ResponseInterface $response)
     {
@@ -538,5 +579,292 @@ class AIController
         } catch (\Throwable $e) {
              return $response->withStatus(500)->json(['error' => 'Stream Init Error: ' . $e->getMessage()]);
         }
+    }
+    #[PostMapping(path: '/ai/generate-video')]
+    public function generateVideo(RequestInterface $request, ResponseInterface $response)
+    {
+        $text = $request->input('text');
+        $avatarImage = $request->input('avatar_image'); // URL or Path accessible by Python
+        $emotion = $request->input('emotion', 'natural');
+        $voice = $request->input('voice', 'alloy');
+        // Force Realtime Unity mode for "generateVideo" as well during debugging (fast path)
+        $mode = 'realtime_unity';
+        
+        // Default Avatar from Vast.ai Server
+        if (!$avatarImage) {
+            $avatarImage = "/root/ai_worker/default_avatar.jpg";
+        }
+
+        if (!$text) {
+            return $response->json(['error' => 'Text is required'])->withStatus(400);
+        }
+
+        try {
+            // Call Python AI Worker (sync path for low latency)
+            $pythonUrl = 'http://host.docker.internal:8090/generate_video_sync';
+            
+            $client = new \GuzzleHttp\Client();
+            $res = $client->post($pythonUrl, [
+                'json' => [
+                    'text' => $text,
+                    'avatar_image' => $avatarImage,
+                    'emotion' => $emotion,
+                    'voice' => $voice,
+                    'mode' => $mode
+                ]
+            ]);
+
+            $data = json_decode($res->getBody()->getContents(), true);
+
+            [$payload, $rawResult] = $this->extractRealtime($data);
+
+            return $response->json([
+                'message' => 'Video generation completed',
+                'reply_text' => $text,
+                'audio_url' => $payload['audio_url'] ?? null,
+                'visemes' => $payload['visemes'] ?? [],
+                'raw_result' => $rawResult,
+                'status' => $data['status'] ?? 'finished',
+                'job_id' => $data['job_id'] ?? null
+            ]);
+
+        } catch (\Throwable $e) {
+            return $response->json(['error' => 'Failed to process video generation: ' . $e->getMessage()])->withStatus(500);
+        }
+    }
+    #[PostMapping(path: '/ai/talk-to-avatar')]
+    public function talkToAvatar(RequestInterface $request, ResponseInterface $response)
+    {
+        $prompt = $request->input('prompt');
+        $avatarImage = $request->input('avatar_image');
+        if (!$avatarImage) {
+            $avatarImage = "/root/ai_worker/default_avatar.jpg";
+        }
+        $voice = $request->input('voice', 'alloy');
+        $emotion = $request->input('emotion', 'natural');
+        $contextId = $request->input('context_id');
+        // Force Realtime Unity mode for "talkToAvatar" to ensure speed/audio
+        $mode = 'realtime_unity'; 
+
+        if (!$prompt) {
+            return $response->json(['error' => 'Prompt is required'])->withStatus(400);
+        }
+
+        try {
+            // 1. Get AI Text Response (The "Brain")
+            $aiPrompt = $prompt;
+            if ($contextId) {
+                $context = Context::find($contextId);
+                if ($context && !empty($context->content['text'])) {
+                     $aiPrompt = "[CONTEXT]: " . $context->content['text'] . "\n\n[USER]: " . $prompt;
+                }
+            } else {
+                // System instruction for better persona
+                // System instruction for better persona: Misaki (Fofa e Prestativa)
+                $persona = "Você é a Misaki, uma assistente virtual fofa, gentil e muito prestativa. " .
+                           "Sua aparência é de uma jovem personagem de anime, como o modelo que o usuário está vendo agora. " .
+                           "Fale SEMPRE em Português do Brasil com um tom carinhoso e amigável. " .
+                           "Mantenha suas respostas curtas (máximo 2 frases), para garantir uma boa sincronização labial. " .
+                           "Ao se apresentar, diga que você é a Misaki e que está aqui para ajudar.";
+                
+                $aiPrompt = "INSTRUÇÃO DO SISTEMA: " . $persona . "\n\nUsuário: " . $prompt;
+            }
+
+            $aiResponseText = $this->ollamaService->chat($aiPrompt);
+            
+            // Clean up any markdown or thinking artifacts if necessary
+            $aiResponseText = strip_tags($aiResponseText);
+
+            // 2. Generate Audio/Viseme payload synchronously for instant response
+            // TUNNEL FIX: Use host.docker.internal to access the SSH Tunnel on the Host
+            $pythonUrl = 'http://host.docker.internal:8090/generate_video_sync';
+            $client = new \GuzzleHttp\Client();
+            
+            $res = $client->post($pythonUrl, [
+                'json' => [
+                    'text' => $aiResponseText,
+                    'avatar_image' => $avatarImage,
+                    'emotion' => $emotion,
+                    'voice' => $voice,
+                    'mode' => $mode
+                ]
+            ]);
+            
+            $data = json_decode($res->getBody()->getContents(), true);
+            [$payload, $rawResult] = $this->extractRealtime($data);
+
+            return $response->json([
+                'message' => 'Processed successfully',
+                'reply_text' => $aiResponseText,
+                'audio_url' => $payload['audio_url'] ?? null,
+                'visemes' => $payload['visemes'] ?? [],
+                'raw_result' => $rawResult,
+                'status' => $data['status'] ?? 'finished',
+                'job_id' => $data['job_id'] ?? null
+            ]);
+
+        } catch (\Throwable $e) {
+            return $response->json(['error' => 'Interaction failed: ' . $e->getMessage()])->withStatus(500);
+        }
+    }
+
+    #[GetMapping(path: '/ai/jobs/{job_id}')]
+    public function getJobStatus($job_id, ResponseInterface $response)
+    {
+        try {
+            // Call Python AI Worker
+            // TUNNEL FIX: Use host.docker.internal to access the SSH Tunnel on the Host
+            $pythonUrl = 'http://host.docker.internal:8090/jobs/' . $job_id;
+            
+            $client = new \GuzzleHttp\Client();
+            $res = $client->get($pythonUrl);
+
+            $data = json_decode($res->getBody()->getContents(), true);
+
+            // Enhance result URL if finished
+            if (isset($data['status']) && $data['status'] === 'finished' && isset($data['result'])) {
+                 $path = $data['result'];
+                 
+                 // Handle REALTIME_JSON special case - pass it through directly
+                 if (strpos($path, 'REALTIME_JSON:') === 0) {
+                     // Parse and inject absolute URL for the tunnel (localhost:8080)
+                     $jsonStr = substr($path, 14); // Remove prefix
+                     $jsonObj = json_decode($jsonStr, true);
+                     if (isset($jsonObj['audio_url'])) {
+                         $fname = basename($jsonObj['audio_url']);
+                         // Fix: Send FULL path with port 8090 to avoid conflict with stuck 8088
+                         $jsonObj['audio_url'] = "http://localhost:8090/outputs/" . $fname;
+                         $data['result'] = "REALTIME_JSON:" . json_encode($jsonObj);
+                     }
+                 } 
+                 // Handle UNITY_AUDIO special case
+                 else if (strpos($path, 'UNITY_AUDIO:') === 0) {
+                     // No modification needed
+                 }
+                 else if (strpos($path, '/app/outputs/') !== false) {
+                     $filename = basename($path);
+                     // Fix: Point to localhost:8080 to use the SSH Tunnel
+                     $data['result'] = "http://localhost:8090/outputs/" . $filename;
+                 }
+            }
+
+            return $response->json($data);
+
+        } catch (\Throwable $e) {
+             // Handle 404 from Python gracefully
+             if (strpos($e->getMessage(), '404') !== false) {
+                 return $response->json(['error' => 'Job not found'])->withStatus(404);
+             }
+            return $response->json(['error' => 'Failed to check job status: ' . $e->getMessage()])->withStatus(500);
+        }
+    }
+    #[PostMapping(path: '/ai/generate-avatar')]
+    public function generateAvatar(RequestInterface $request, ResponseInterface $response)
+    {
+        $prompt = $request->input('prompt');
+
+        if (!$prompt) {
+            return $response->json(['error' => 'Prompt is required'])->withStatus(422);
+        }
+
+        try {
+            // Call Python AI Worker
+            // TUNNEL FIX: Use host.docker.internal to access the SSH Tunnel on the Host
+            $pythonUrl = 'http://host.docker.internal:8080/avatar';
+            
+            $client = new \GuzzleHttp\Client();
+            $res = $client->post($pythonUrl, [
+                'json' => [
+                    'prompt' => $prompt
+                ]
+            ]);
+
+            $data = json_decode($res->getBody()->getContents(), true);
+
+            return $response->json([
+                'message' => 'Avatar generation queued successfully',
+                'job_id' => $data['job_id'],
+                'status' => $data['status']
+            ]);
+
+        } catch (\Throwable $e) {
+            return $response->json(['error' => 'Failed to queue avatar generation: ' . $e->getMessage()])->withStatus(500);
+        }
+    }
+
+    #[PostMapping(path: '/ai/upload-base-motion')]
+    public function uploadBaseMotion(\Hyperf\HttpServer\Contract\RequestInterface $request, \Hyperf\HttpServer\Contract\ResponseInterface $response)
+    {
+        $avatarName = $request->input('avatar_name');
+        $videoFile = $request->file('video');
+
+        if (!$avatarName || !$videoFile) {
+            return $response->json(['error' => 'avatar_name and video file are required'])->withStatus(422);
+        }
+
+        try {
+            // TUNNEL FIX: Use host.docker.internal to access the SSH Tunnel on the Host
+            $pythonUrl = 'http://host.docker.internal:8080/upload_base_motion';
+            
+            $client = new \GuzzleHttp\Client();
+            $res = $client->post($pythonUrl, [
+                'multipart' => [
+                    [
+                        'name'     => 'avatar_name',
+                        'contents' => $avatarName
+                    ],
+                    [
+                        'name'     => 'video',
+                        'contents' => fopen($videoFile->getRealPath(), 'r'),
+                        'filename' => $videoFile->getClientFilename()
+                    ]
+                ]
+            ]);
+
+            return $response->json(json_decode($res->getBody()->getContents(), true));
+
+        } catch (\Throwable $e) {
+            return $response->json(['error' => 'Failed to upload base motion: ' . $e->getMessage()])->withStatus(500);
+        }
+    }
+
+    /**
+     * Normalize realtime payload (audio + visemes) returned by the Python worker.
+     */
+    private function normalizeRealtimePayload(?array $payload): array
+    {
+        $payload = $payload ?? [];
+
+        if (isset($payload['audio_url'])) {
+            $fname = basename((string) $payload['audio_url']);
+            $payload['audio_url'] = "http://localhost:8090/outputs/" . $fname;
+        }
+
+        if (!isset($payload['visemes']) || !is_array($payload['visemes'])) {
+            $payload['visemes'] = [];
+        }
+
+        return $payload;
+    }
+
+    /**
+     * Extracts realtime payload and raw result string from worker response.
+     */
+    private function extractRealtime(array $data): array
+    {
+        $rawResult = $data['result'] ?? null;
+        $payload = $data['realtime'] ?? null;
+
+        if (!$payload && is_string($rawResult) && str_starts_with($rawResult, 'REALTIME_JSON:')) {
+            $payload = json_decode(substr($rawResult, 14), true) ?: [];
+        }
+
+        $payload = $this->normalizeRealtimePayload($payload);
+
+        if (is_string($rawResult) && str_starts_with($rawResult, 'REALTIME_JSON:')) {
+            $rawResult = 'REALTIME_JSON:' . json_encode($payload);
+        }
+
+        return [$payload, $rawResult];
     }
 }

@@ -20,7 +20,8 @@ class AIController
     public function __construct(
         private OllamaService $ollamaService,
         private DatabaseManagerService $dbManager,
-        private CacheInterface $cache
+        private CacheInterface $cache,
+        private \Psr\Container\ContainerInterface $container
     ) {}
 
     #[PostMapping(path: '/ai/create-table')]
@@ -385,6 +386,10 @@ class AIController
         }
 
         $vision = $request->input('vision', 'true') === 'true';
+        
+        // Log basic info
+        $logger = $this->container->get(\Hyperf\Logger\LoggerFactory::class)->get('ai');
+        $logger->info("Analyze PDF started. Vision: " . ($vision ? 'yes' : 'no') . ", Name: " . $file->getClientFilename());
 
         try {
             if ($vision) {

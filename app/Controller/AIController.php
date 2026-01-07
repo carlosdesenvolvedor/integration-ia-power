@@ -417,14 +417,32 @@ class AIController
         $outputImagePath = $tempDir . '/' . uniqid() . '.png';
 
         try {
+            // 0. Check Environment
+            if (!extension_loaded('imagick')) {
+                throw new \Exception("Extensão 'imagick' não encontrada no servidor PHP. Verifique o Dockerfile.");
+            }
+
             // 1. Converter PDF para Imagem com alta resolução (150 DPI)
             $pdf = new \Spatie\PdfToImage\Pdf($pdfPath);
-            $pdf->setResolution(150);
-            $pdf->setFormat('png');
-            $pdf->selectPage(1)->saveImage($outputImagePath);
+            
+            // API v3 uses fluent methods without 'set' prefix
+            if (method_exists($pdf, 'resolution')) {
+                $pdf->resolution(150);
+            }
+            
+            if (method_exists($pdf, 'format')) {
+                $pdf->format('png');
+            }
+
+            // Try saveImage or save depending on exact version/available methods
+            if (method_exists($pdf, 'saveImage')) {
+                $pdf->saveImage($outputImagePath);
+            } else {
+                $pdf->save($outputImagePath);
+            }
 
             if (!file_exists($outputImagePath)) {
-                throw new \Exception("Falha ao gerar imagem do PDF. Verifique se o Ghostscript está instalado corretamente.");
+                throw new \Exception("Arquivo de imagem não foi gerado. Verifique os logs do Ghostscript/ImageMagick.");
             }
 
             $imageBase64 = base64_encode(file_get_contents($outputImagePath));

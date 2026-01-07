@@ -24,19 +24,19 @@ RUN set -ex \
     && apk add --no-cache imagemagick ghostscript php83-pecl-imagick \
     # Fix ImageMagick policy to allow PDF reading
     && sed -i 's/domain="coder" rights="none" pattern="PDF"/domain="coder" rights="read|write" pattern="PDF"/' /etc/ImageMagick-*/policy.xml \
+    # Ensure imagick extension is enabled
+    && echo "extension=imagick.so" > /etc/php83/conf.d/00_imagick.ini \
     # show php version and extensions
     && php -v \
     && php -m \
     && php --ri swoole \
-    #  ---------- some config ----------
-    && cd /etc/php* \
     # - config PHP
     && { \
     echo "upload_max_filesize=128M"; \
     echo "post_max_size=128M"; \
     echo "memory_limit=1G"; \
     echo "date.timezone=${TIMEZONE}"; \
-    } | tee conf.d/99_overrides.ini \
+    } | tee /etc/php83/conf.d/99_overrides.ini \
     # - config timezone
     && ln -sf /usr/share/zoneinfo/${TIMEZONE} /etc/localtime \
     && echo "${TIMEZONE}" > /etc/timezone \

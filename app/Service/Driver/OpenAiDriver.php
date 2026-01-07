@@ -97,6 +97,22 @@ class OpenAiDriver implements LlmDriverInterface
         }
     }
 
+    public function chatWithVision(string $message, string $imageBase64): string
+    {
+        return $this->callChat([
+            [
+                'role' => 'user',
+                'content' => [
+                    ['type' => 'text', 'text' => $message],
+                    [
+                        'type' => 'image_url',
+                        'image_url' => ['url' => "data:image/jpeg;base64,{$imageBase64}"]
+                    ]
+                ]
+            ]
+        ], 0.1);
+    }
+
     private function callChat(array $messages, float $temperature = 0.7): string
     {
         if (empty($this->apiKey)) {

@@ -75,4 +75,9 @@ class OllamaService
     {
         return $this->driver->chatStream($message);
     }
+
+    public function chatWithVision(string $message, string $imageBase64): string
+    {
+        return $this->driver->chatWithVision($message, $imageBase64);
+    }
 }

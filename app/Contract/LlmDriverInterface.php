@@ -19,4 +19,6 @@ interface LlmDriverInterface
     public function chat(string $message): string;
 
     public function chatStream(string $message): \Generator;
+
+    public function chatWithVision(string $message, string $imageBase64): string;
 }

@@ -421,23 +421,27 @@ class AIController
             $pdf = new \Spatie\PdfToImage\Pdf($pdfPath);
             $pdf->setResolution(150);
             $pdf->setFormat('png');
-            $pdf->selectPage(1)->save($outputImagePath);
+            $pdf->selectPage(1)->saveImage($outputImagePath);
+
+            if (!file_exists($outputImagePath)) {
+                throw new \Exception("Falha ao gerar imagem do PDF. Verifique se o Ghostscript está instalado corretamente.");
+            }
 
             $imageBase64 = base64_encode(file_get_contents($outputImagePath));
 
             // 2. Chamar IA com Visão - Prompt mais rigoroso para recortar apenas a FOTO
             $prompt = "Você é um robô de visão computacional especialista em catálogos.\n" .
                       "Para cada produto identifique:\n" .
-                      "- Nome completa, Código, Preço e Unidade.\n" .
-                      "- box: As coordenadas EXATAS da FOTO do produto (geralmente um quadrado à esquerda ou direita do texto). NAO inclua o texto/descrição no box.\n\n" .
-                      "Formato do box: [ymin, xmin, ymax, xmax] em porcentagem (0 a 100).\n" .
-                      "IMPORTANTE: Se o produto não tiver foto, ignore-o ou deixe o box vazio.\n" .
-                      "Retorne APENAS um JSON (lista de objetos).";
+                      "- Nome completo, Código, Preço e Unidade.\n" .
+                      "- box: [ymin, xmin, ymax, xmax] da FOTO do produto (ícone/miniatura lateral).\n\n" .
+                      "IMPORTANTE: Ignore o texto no box. Retorne APENAS o JSON puro (lista de objetos).";
 
             $reply = $this->ollamaService->chatWithVision($prompt, $imageBase64);
             $products = json_decode($reply, true) ?: (preg_match('/\[.*\]/s', $reply, $m) ? json_decode($m[0], true) : []);
 
-            if (!$products) throw new \Exception("IA não retornou dados válidos: " . $reply);
+            if (!$products) {
+                throw new \Exception("A IA não conseguiu estruturar os produtos. Resposta bruta: " . mb_substr($reply, 0, 500));
+            }
 
             // 3. Recortar Imagens
             $manager = \Intervention\Image\ImageManager::gd();
@@ -445,21 +449,21 @@ class AIController
             $width = $img->width();
             $height = $img->height();
 
-            $logger = $this->container->get(\Hyperf\Logger\LoggerFactory::class)->get('ai');
-            
             foreach ($products as &$product) {
                 if (isset($product['box']) && count($product['box']) === 4) {
-                    $p = $product['box'];
-                    $logger->info("Cropping: " . ($product['nome'] ?? 'unnamed') . " Box: " . json_encode($p));
-                    
-                    $y1 = ($p[0] / 100) * $height;
-                    $x1 = ($p[1] / 100) * $width;
-                    $ch = (($p[2] - $p[0]) / 100) * $height;
-                    $cw = (($p[3] - $p[1]) / 100) * $width;
+                    try {
+                        $p = $product['box'];
+                        $y1 = ($p[0] / 100) * $height;
+                        $x1 = ($p[1] / 100) * $width;
+                        $ch = (($p[2] - $p[0]) / 100) * $height;
+                        $cw = (($p[3] - $p[1]) / 100) * $width;
 
-                    $crop = clone $img;
-                    $crop->crop((int)round($cw), (int)round($ch), (int)round($x1), (int)round($y1));
-                    $product['imageBase64'] = base64_encode((string)$crop->toJpeg());
+                        $crop = clone $img;
+                        $crop->crop((int)round($cw), (int)round($ch), (int)round($x1), (int)round($y1));
+                        $product['imageBase64'] = base64_encode((string)$crop->toJpeg());
+                    } catch (\Throwable $e) {
+                        $product['crop_error'] = $e->getMessage();
+                    }
                 }
             }
 
@@ -468,7 +472,7 @@ class AIController
 
         } catch (\Throwable $e) {
             @unlink($outputImagePath);
-            throw $e;
+            return $response->json(['error' => 'Erro no processamento visual: ' . $e->getMessage()])->withStatus(500);
         }
     }
 

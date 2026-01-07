@@ -377,7 +377,6 @@ class AIController
     }
 
     #[PostMapping(path: '/ai/analyze-pdf')]
-    #[PostMapping(path: '/ai/analyze_pdf')]
     public function analyzePdf(RequestInterface $request, ResponseInterface $response)
     {
         $file = $request->file('pdf');

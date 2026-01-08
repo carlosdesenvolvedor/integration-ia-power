@@ -996,9 +996,6 @@ class AIController
     }
 
     #[PostMapping(path: '/ai/parse_hayamax_html')]
-    #[PostMapping(path: '/ai/parse_hayamax')]
-    #[PostMapping(path: '/ai/parse-hayamax')]
-    #[PostMapping(path: '/ai/parse-hayamax-html')]
     public function parseHayamaxHtml(RequestInterface $request, ResponseInterface $response)
     {
         $html = $request->input('html');

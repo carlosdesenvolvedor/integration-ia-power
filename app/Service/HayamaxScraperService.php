@@ -8,18 +8,17 @@ class HayamaxScraperService
 {
     /**
      * Analisa o HTML bruto enviado pelo frontend e extrai os produtos.
-     * Esta versão usa PHP puro (Regex) para evitar conflitos de dependências no servidor.
+     * Versão otimizada para capturar imagens mesmo com Lazy Load.
      */
     public function parseHtml(string $html): array
     {
         $products = [];
         
-        // 1. Isolar os blocos de produtos (geralmente dentro de col- ou card-)
-        // Procuramos por padrões que se repetem no grid da Hayamax
-        preg_match_all('/<div[^>]*class="[^"]*(col-|card-product|product-item)[^"]*"[^>]*>(.*?)<\/div>\s*<\/div>/s', $html, $blocks);
+        // 1. Isolar os blocos de produtos (considerando as classes de grid da Hayamax)
+        preg_match_all('/<div[^>]*class="[^"]*(col-|card-product|product-item|product-container)[^"]*"[^>]*>(.*?)<\/div>\s*<\/div>/s', $html, $blocks);
 
         if (empty($blocks[2])) {
-            // Fallback: tentar um padrão mais genérico se o grid mudar
+            // Fallback: tentar um padrão genérico baseado na estrutura de texto do código
             preg_match_all('/<div[^>]*>(.*?)Cód\.\s*\d+.*?<\/div>/s', $html, $blocks);
         }
 
@@ -34,24 +33,44 @@ class HayamaxScraperService
             preg_match('/R\$\s*([\d,.]+)/', $block, $priceMatch);
             $price = $priceMatch[0] ?? 'Indisponível';
 
-            // Extrair Nome (geralmente em um <p> ou <h3> antes do código)
-            // Pegamos o texto limpo de tags dentro do bloco
+            // Extrair Nome
             $cleanBlock = strip_tags($block);
             $lines = array_map('trim', explode("\n", $cleanBlock));
             $name = '';
-            
             foreach ($lines as $line) {
-                if (strlen($line) > 10 && !str_contains($line, 'Cód.') && !str_contains($line, 'R$')) {
+                if (strlen($line) > 10 && !str_contains($line, 'Cód.') && !str_contains($line, 'R$') && !str_contains($line, 'Estoque')) {
                     $name = $line;
                     break;
                 }
             }
 
-            // Extrair URL da Imagem
-            preg_match('/src="([^"]*(foto|produto)[^"]*)"/', $block, $imgMatch);
-            $img = $imgMatch[1] ?? '';
-            if ($img && str_starts_with($img, '/')) {
-                $img = 'https://loja.hayamax.com.br' . $img;
+            // EXTRAÇÃO DA IMAGEM (Lazy Load Support)
+            // Procurar por data-src primeiro, depois src
+            $imgUrl = '';
+            if (preg_match('/data-src=["\']([^"\']+)["\']/', $block, $match)) {
+                $imgUrl = $match[1];
+            } elseif (preg_match('/src=["\']([^"\']+)["\']/', $block, $match)) {
+                $imgUrl = $match[1];
+            }
+
+            // Limpeza da URL
+            if ($imgUrl && !str_contains($imgUrl, 'http')) {
+                $imgUrl = 'https://loja.hayamax.com.br' . (str_starts_with($imgUrl, '/') ? '' : '/') . $imgUrl;
+            }
+
+            // Converter para Base64 para compatibilidade com o Modal do Frontend
+            $imageBase64 = '';
+            if ($imgUrl && !str_contains($imgUrl, '.gif') && !str_contains($imgUrl, 'placeholder')) {
+                try {
+                    // Timeout curto para não travar o processo
+                    $ctx = stream_context_create(['http' => ['timeout' => 3]]);
+                    $imgData = @file_get_contents($imgUrl, false, $ctx);
+                    if ($imgData) {
+                        $imageBase64 = base64_encode($imgData);
+                    }
+                } catch (\Throwable $e) {
+                    // Silenciar erros de download, apenas segue sem foto
+                }
             }
 
             if ($name && $code) {
@@ -60,7 +79,8 @@ class HayamaxScraperService
                     'codigo' => $code,
                     'preco' => $price,
                     'unidade' => 'PC/1',
-                    'imageUrl' => $img
+                    'imageBase64' => $imageBase64,
+                    'imageUrl' => $imgUrl
                 ];
             }
         }
@@ -68,9 +88,6 @@ class HayamaxScraperService
         return $products;
     }
 
-    /**
-     * Legado: Mantido para não quebrar injeções, mas redireciona para o novo parser
-     */
     public function login(string $u, string $p) { return true; }
     public function scrape(string $url) { return []; }
 }

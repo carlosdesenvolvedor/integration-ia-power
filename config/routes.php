@@ -21,4 +21,3 @@ Router::post('/ai/analyze_pdf', 'App\Controller\AIController@analyzePdf');
 Router::post('/ai/parse-hayamax', 'App\Controller\AIController@parseHayamaxHtml');
 Router::post('/ai/parse_hayamax', 'App\Controller\AIController@parseHayamaxHtml');
 Router::post('/ai/parse-hayamax-html', 'App\Controller\AIController@parseHayamaxHtml');
-Router::post('/ai/parse_hayamax_html', 'App\Controller\AIController@parseHayamaxHtml');

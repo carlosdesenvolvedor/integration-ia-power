@@ -447,12 +447,16 @@ class AIController
 
             $imageBase64 = base64_encode(file_get_contents($outputImagePath));
 
-            // 2. Chamar IA com Visão - Prompt mais rigoroso para recortar apenas a FOTO
-            $prompt = "Você é um robô de visão computacional especialista em catálogos.\n" .
-                      "Para cada produto identifique:\n" .
+            // 2. Chamar IA com Visão - Prompt ajustado para layout VERTICAL (Foto em cima, texto embaixo)
+            $prompt = "Você é um especialista em visão computacional de catálogos.\n" .
+                      "Neste PDF, cada produto tem a FOTO na parte de CIMA e o TEXTO (nome/preço) logo abaixo dela.\n\n" .
+                      "Tarefa: Extraia os dados e o box EXATO da FOTO de cada produto.\n" .
                       "- Nome completo, Código, Preço e Unidade.\n" .
-                      "- box: [ymin, xmin, ymax, xmax] da FOTO do produto (ícone/miniatura lateral).\n\n" .
-                      "IMPORTANTE: Ignore o texto no box. Retorne APENAS o JSON puro (lista de objetos).";
+                      "- box: [ymin, xmin, ymax, xmax] cobrindo APENAS a parte visual/imagem do produto (0 a 100).\n\n" .
+                      "REGRAS:\n" .
+                      "1. NÃO inclua o texto dentro do box.\n" .
+                      "2. O box deve envolver toda a imagem do produto, sem cortes.\n" .
+                      "3. Retorne APENAS o JSON puro (array de objetos).";
 
             $reply = $this->ollamaService->chatWithVision($prompt, $imageBase64);
             $products = json_decode($reply, true) ?: (preg_match('/\[.*\]/s', $reply, $m) ? json_decode($m[0], true) : []);

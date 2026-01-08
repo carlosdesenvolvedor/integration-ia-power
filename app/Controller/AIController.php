@@ -431,7 +431,7 @@ class AIController
             }
             
             if (method_exists($pdf, 'format')) {
-                $pdf->format('png');
+                $pdf->format(\Spatie\PdfToImage\Enums\OutputFormat::Png);
             }
 
             // Try saveImage or save depending on exact version/available methods

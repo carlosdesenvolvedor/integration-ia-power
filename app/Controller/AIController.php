@@ -994,4 +994,28 @@ class AIController
             return $response->json(['error' => 'Erro no scraper: ' . $e->getMessage()])->withStatus(500);
         }
     }
+
+    #[PostMapping(path: '/ai/parse_hayamax_html')]
+    #[PostMapping(path: '/ai/parse_hayamax')]
+    #[PostMapping(path: '/ai/parse-hayamax')]
+    #[PostMapping(path: '/ai/parse-hayamax-html')]
+    public function parseHayamaxHtml(RequestInterface $request, ResponseInterface $response)
+    {
+        $html = $request->input('html');
+        if (!$html) {
+            return $response->json(['error' => 'O campo HTML é obrigatório'])->withStatus(400);
+        }
+
+        try {
+            $products = $this->hayamaxScraper->parseHtml($html);
+
+            if (empty($products)) {
+                return $response->json(['error' => 'Nenhum produto identificado no HTML fornecido.'])->withStatus(404);
+            }
+
+            return $response->json(['products' => $products]);
+        } catch (\Throwable $e) {
+            return $response->json(['error' => 'Erro ao processar HTML: ' . $e->getMessage()])->withStatus(500);
+        }
+    }
 }

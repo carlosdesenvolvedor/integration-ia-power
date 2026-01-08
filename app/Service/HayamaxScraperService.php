@@ -52,11 +52,13 @@ class HayamaxScraperService
 
         if (!$code) return;
 
-        // 2. Preço (R$ 52,15) - Tenta pegar o valor completo
+        // 2. Preço (Extrair apenas o valor numérico para o campo de Custo)
         preg_match('/R\$\s*([\d,.]+)/', $block, $priceMatch);
-        $price = isset($priceMatch[0]) ? trim($priceMatch[0]) : 'Indisponível';
-
-        // 3. Nome (pode estar em search-product-title ou tags similares)
+        $priceRaw = $priceMatch[1] ?? '0.00';
+        // Converter formato brasileiro (1.200,50) para decimal (1200.50)
+        $priceClean = str_replace(['.', ','], ['', '.'], $priceRaw);
+        
+        // 3. Nome
         $name = '';
         if (preg_match('/class="search-product-title"[^>]*>(.*?)<\/p>/s', $block, $nameMatch)) {
             $name = trim(strip_tags($nameMatch[1]));
@@ -71,18 +73,12 @@ class HayamaxScraperService
             }
         }
 
-        // 4. Imagem (Base64) - Prioriza data-src do Lazy Load
+        // 4. Imagem (Base64) - Prioriza data-src
         $imgUrl = '';
-        // Procura primeiro por data-src que contenha 'static.hayapek' ou 'produto'
         if (preg_match('/data-src=["\'](https:\/\/[^"\']+(static|produto)[^"\']+)["\']/', $block, $match)) {
             $imgUrl = $match[1];
         } elseif (preg_match('/src=["\'](https:\/\/[^"\']+(static|produto)[^"\']+)["\']/', $block, $match)) {
             $imgUrl = $match[1];
-        } elseif (preg_match('/src=["\']([^"\']+\.(jpg|jpeg|png|webp)[^"\']*)["\']/', $block, $match)) {
-            $imgUrl = $match[1];
-            if ($imgUrl && !str_contains($imgUrl, 'http')) {
-                $imgUrl = 'https://loja.hayamax.com.br/' . ltrim($imgUrl, '/');
-            }
         }
 
         $imageBase64 = '';
@@ -95,9 +91,7 @@ class HayamaxScraperService
                     ]
                 ]);
                 $imgData = @file_get_contents($imgUrl, false, $ctx);
-                if ($imgData) {
-                    $imageBase64 = base64_encode($imgData);
-                }
+                if ($imgData) $imageBase64 = base64_encode($imgData);
             } catch (\Throwable $e) {}
         }
 
@@ -105,7 +99,8 @@ class HayamaxScraperService
             $products[] = [
                 'nome' => $name,
                 'codigo' => $code,
-                'preco' => $price,
+                'preco' => $priceClean, // Agora numérico pura (ex: 119.57)
+                'custo' => $priceClean, // Alias para garantir compatibilidade
                 'unidade' => 'PC/1',
                 'imageBase64' => $imageBase64,
                 'imageUrl' => $imgUrl

@@ -447,17 +447,20 @@ class AIController
 
             $imageBase64 = base64_encode(file_get_contents($outputImagePath));
 
-            // 2. Chamar IA com Visão - Foco em EMBALAGEM COMPLETA
-            $prompt = "Você é um especialista em visão de produtos.\n" .
-                      "Neste catálogo, os produtos estão dispostos verticalmente: FOTO em cima, TEXTO embaixo.\n\n" .
-                      "Tarefa: Identifique cada item e seu box de imagem.\n" .
-                      "- Nome completo, Código, Preço e Unidade.\n" .
-                      "- box: [ymin, xmin, ymax, xmax] da EMBALAGEM COMPLETA do produto (0 a 100).\n\n" .
-                      "REGRAS CRÍTICAS:\n" .
-                      "1. O box DEVE envolver o produto INTEIRO, de ponta a ponta, sem cortar as bordas.\n" .
-                      "2. Centralize o produto no box.\n" .
-                      "3. NÃO inclua o texto de descrição no box.\n" .
-                      "4. Retorne APENAS o JSON bruto (array de objetos).";
+            // 2. Chamar IA com Visão - Foco em GRID de 4 Colunas (Hayamax Style)
+            $prompt = "Você é um especialista em catálogos de atacado (Grid Layout).\n" .
+                      "ESTRUTURA DA PÁGINA: O documento é uma grade com vários produtos por linha.\n" .
+                      "CADA PRODUTO É UM BLOCO VERTICAL:\n" .
+                      "1. No TOPO está a FOTO.\n" .
+                      "2. LOGO ABAIXO da foto está a MARCA (ex: SG, NIG).\n" .
+                      "3. ABAIXO da marca está a DESCRIÇÃO.\n" .
+                      "4. ABAIXO está o CÓDIGO (ex: Cód. 74168).\n" .
+                      "5. NA BASE está o PREÇO em VERMELHO.\n\n" .
+                      "REGRA DE ASSOCIAÇÃO: Use apenas a foto que está DIRETAMENTE ACIMA do texto do produto. NÃO troque as fotos de colunas vizinhas.\n\n" .
+                      "EXTRAIA:\n" .
+                      "- Nome completo (Marca + Descrição), código, preço, unidade.\n" .
+                      "- box: [ymin, xmin, ymax, xmax] da EMBALAGEM COMPLETA no topo do bloco (0-100).\n\n" .
+                      "RETORNO: APENAS o JSON puro (array de objetos).";
 
             $reply = $this->ollamaService->chatWithVision($prompt, $imageBase64);
             $products = json_decode($reply, true) ?: (preg_match('/\[.*\]/s', $reply, $m) ? json_decode($m[0], true) : []);

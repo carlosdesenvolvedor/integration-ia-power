@@ -18,4 +18,3 @@ Router::get('/favicon.ico', function () {
 });
 
 Router::post('/ai/analyze_pdf', 'App\Controller\AIController@analyzePdf');
-Router::post('/ai/scrape_hayamax', 'App\Controller\AIController@scrapeHayamax');

@@ -14,78 +14,103 @@ class HayamaxScraperService
     {
         $products = [];
         
-        // 1. Isolar os blocos de produtos (considerando as classes de grid da Hayamax)
-        preg_match_all('/<div[^>]*class="[^"]*(col-|card-product|product-item|product-container)[^"]*"[^>]*>(.*?)<\/div>\s*<\/div>/s', $html, $blocks);
+        // 1. Isolar blocos de produtos usando a classe específica identificada
+        // A Hayamax usa 'search-product' para cada item na busca nova
+        preg_match_all('/<div[^>]*class="[^"]*search-product[^"]*"[^>]*>(.*?)<\/div>\s*<\/div>\s*<\/div>/s', $html, $blocks);
 
-        if (empty($blocks[2])) {
-            // Fallback: tentar um padrão genérico baseado na estrutura de texto do código
-            preg_match_all('/<div[^>]*>(.*?)Cód\.\s*\d+.*?<\/div>/s', $html, $blocks);
+        if (empty($blocks[1])) {
+            // Fallback para o modo grade geral
+            preg_match_all('/<div[^>]*class="[^"]*(col-|card-product|product-item|product-container)[^"]*"[^>]*>(.*?)<\/div>\s*<\/div>/s', $html, $blocks);
+            $contentIdx = 2;
+        } else {
+            $contentIdx = 1;
         }
 
-        foreach ($blocks[0] as $block) {
-            // Extrair Código (ex: Cód. 74168)
-            preg_match('/Cód\.\s*(\d+)/', $block, $codeMatch);
-            $code = $codeMatch[1] ?? null;
+        if (empty($blocks[$contentIdx])) {
+            // Último recurso: dividir por "Cód."
+            $parts = explode('Cód.', $html);
+            array_shift($parts); // Remove a primeira parte antes do primeiro código
+            foreach ($parts as $part) {
+                $block = 'Cód.' . substr($part, 0, 1000); // Pega um pedaço razoável
+                $this->extractFromBlock($block, $products);
+            }
+            return $products;
+        }
 
-            if (!$code) continue;
+        foreach ($blocks[$contentIdx] as $block) {
+            $this->extractFromBlock($block, $products);
+        }
 
-            // Extrair Preço (ex: R$ 52,15)
-            preg_match('/R\$\s*([\d,.]+)/', $block, $priceMatch);
-            $price = $priceMatch[0] ?? 'Indisponível';
+        return $products;
+    }
 
-            // Extrair Nome
+    private function extractFromBlock(string $block, array &$products): void
+    {
+        // 1. Código (Cód. 74168)
+        preg_match('/Cód\.\s*(\d+)/', $block, $codeMatch);
+        $code = $codeMatch[1] ?? null;
+
+        if (!$code) return;
+
+        // 2. Preço (R$ 52,15) - Tenta pegar o valor completo
+        preg_match('/R\$\s*([\d,.]+)/', $block, $priceMatch);
+        $price = isset($priceMatch[0]) ? trim($priceMatch[0]) : 'Indisponível';
+
+        // 3. Nome (pode estar em search-product-title ou tags similares)
+        $name = '';
+        if (preg_match('/class="search-product-title"[^>]*>(.*?)<\/p>/s', $block, $nameMatch)) {
+            $name = trim(strip_tags($nameMatch[1]));
+        } else {
             $cleanBlock = strip_tags($block);
             $lines = array_map('trim', explode("\n", $cleanBlock));
-            $name = '';
             foreach ($lines as $line) {
                 if (strlen($line) > 10 && !str_contains($line, 'Cód.') && !str_contains($line, 'R$') && !str_contains($line, 'Estoque')) {
                     $name = $line;
                     break;
                 }
             }
+        }
 
-            // EXTRAÇÃO DA IMAGEM (Lazy Load Support)
-            // Procurar por data-src primeiro, depois src
-            $imgUrl = '';
-            if (preg_match('/data-src=["\']([^"\']+)["\']/', $block, $match)) {
-                $imgUrl = $match[1];
-            } elseif (preg_match('/src=["\']([^"\']+)["\']/', $block, $match)) {
-                $imgUrl = $match[1];
-            }
-
-            // Limpeza da URL
+        // 4. Imagem (Base64) - Prioriza data-src do Lazy Load
+        $imgUrl = '';
+        // Procura primeiro por data-src que contenha 'static.hayapek' ou 'produto'
+        if (preg_match('/data-src=["\'](https:\/\/[^"\']+(static|produto)[^"\']+)["\']/', $block, $match)) {
+            $imgUrl = $match[1];
+        } elseif (preg_match('/src=["\'](https:\/\/[^"\']+(static|produto)[^"\']+)["\']/', $block, $match)) {
+            $imgUrl = $match[1];
+        } elseif (preg_match('/src=["\']([^"\']+\.(jpg|jpeg|png|webp)[^"\']*)["\']/', $block, $match)) {
+            $imgUrl = $match[1];
             if ($imgUrl && !str_contains($imgUrl, 'http')) {
-                $imgUrl = 'https://loja.hayamax.com.br' . (str_starts_with($imgUrl, '/') ? '' : '/') . $imgUrl;
-            }
-
-            // Converter para Base64 para compatibilidade com o Modal do Frontend
-            $imageBase64 = '';
-            if ($imgUrl && !str_contains($imgUrl, '.gif') && !str_contains($imgUrl, 'placeholder')) {
-                try {
-                    // Timeout curto para não travar o processo
-                    $ctx = stream_context_create(['http' => ['timeout' => 3]]);
-                    $imgData = @file_get_contents($imgUrl, false, $ctx);
-                    if ($imgData) {
-                        $imageBase64 = base64_encode($imgData);
-                    }
-                } catch (\Throwable $e) {
-                    // Silenciar erros de download, apenas segue sem foto
-                }
-            }
-
-            if ($name && $code) {
-                $products[] = [
-                    'nome' => $name,
-                    'codigo' => $code,
-                    'preco' => $price,
-                    'unidade' => 'PC/1',
-                    'imageBase64' => $imageBase64,
-                    'imageUrl' => $imgUrl
-                ];
+                $imgUrl = 'https://loja.hayamax.com.br/' . ltrim($imgUrl, '/');
             }
         }
 
-        return $products;
+        $imageBase64 = '';
+        if ($imgUrl && !str_contains($imgUrl, 'data:image') && !str_contains($imgUrl, 'placeholder')) {
+            try {
+                $ctx = stream_context_create([
+                    'http' => [
+                        'timeout' => 5,
+                        'header' => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\r\n"
+                    ]
+                ]);
+                $imgData = @file_get_contents($imgUrl, false, $ctx);
+                if ($imgData) {
+                    $imageBase64 = base64_encode($imgData);
+                }
+            } catch (\Throwable $e) {}
+        }
+
+        if ($name && $code) {
+            $products[] = [
+                'nome' => $name,
+                'codigo' => $code,
+                'preco' => $price,
+                'unidade' => 'PC/1',
+                'imageBase64' => $imageBase64,
+                'imageUrl' => $imgUrl
+            ];
+        }
     }
 
     public function login(string $u, string $p) { return true; }

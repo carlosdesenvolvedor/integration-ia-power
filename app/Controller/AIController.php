@@ -11,6 +11,7 @@ use Psr\SimpleCache\CacheInterface;
 use Hyperf\HttpServer\Annotation\Controller;
 use Hyperf\HttpServer\Annotation\PostMapping;
 use Hyperf\HttpServer\Annotation\GetMapping;
+use App\Service\HayamaxScraperService;
 use Hyperf\HttpServer\Contract\RequestInterface;
 use Hyperf\HttpServer\Contract\ResponseInterface;
 
@@ -21,7 +22,8 @@ class AIController
         private OllamaService $ollamaService,
         private DatabaseManagerService $dbManager,
         private CacheInterface $cache,
-        private \Psr\Container\ContainerInterface $container
+        private \Psr\Container\ContainerInterface $container,
+        private \App\Service\HayamaxScraperService $hayamaxScraper
     ) {}
 
     #[PostMapping(path: '/ai/create-table')]
@@ -961,5 +963,35 @@ class AIController
         }
 
         return [$payload, $rawResult];
+    }
+
+    #[PostMapping(path: '/ai/scrape_hayamax')]
+    public function scrapeHayamax(RequestInterface $request, ResponseInterface $response)
+    {
+        $url = $request->input('url', 'https://loja.hayamax.com.br/busca/?q=encordoamento');
+        
+        // Hardcoded credentials for now (provided by user)
+        $user = '54887255000147';
+        $pass = 'Ce134679*';
+
+        try {
+            if (!$this->hayamaxScraper->login($user, $pass)) {
+                return $response->json(['error' => 'Falha na autenticação com Hayamax'])->withStatus(401);
+            }
+
+            $products = $this->hayamaxScraper->scrape($url);
+
+            if (empty($products)) {
+                return $response->json(['error' => 'Nenhum produto encontrado ou erro no seletor do site.'])->withStatus(404);
+            }
+
+            // Converter imageUrl para base64 se o frontend exigir (conforme PDF vision anterior)
+            // No entanto, para web scraping, podemos retornar a URL direto se o Flutter suportar.
+            // Para manter compatibilidade total com o modal de 'Importação Massiva', vamos retornar 'products'.
+            
+            return $response->json(['products' => $products]);
+        } catch (\Throwable $e) {
+            return $response->json(['error' => 'Erro no scraper: ' . $e->getMessage()])->withStatus(500);
+        }
     }
 }

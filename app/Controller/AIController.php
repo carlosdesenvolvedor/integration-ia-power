@@ -447,16 +447,17 @@ class AIController
 
             $imageBase64 = base64_encode(file_get_contents($outputImagePath));
 
-            // 2. Chamar IA com Visão - Prompt ajustado para layout VERTICAL (Foto em cima, texto embaixo)
-            $prompt = "Você é um especialista em visão computacional de catálogos.\n" .
-                      "Neste PDF, cada produto tem a FOTO na parte de CIMA e o TEXTO (nome/preço) logo abaixo dela.\n\n" .
-                      "Tarefa: Extraia os dados e o box EXATO da FOTO de cada produto.\n" .
+            // 2. Chamar IA com Visão - Foco em EMBALAGEM COMPLETA
+            $prompt = "Você é um especialista em visão de produtos.\n" .
+                      "Neste catálogo, os produtos estão dispostos verticalmente: FOTO em cima, TEXTO embaixo.\n\n" .
+                      "Tarefa: Identifique cada item e seu box de imagem.\n" .
                       "- Nome completo, Código, Preço e Unidade.\n" .
-                      "- box: [ymin, xmin, ymax, xmax] cobrindo APENAS a parte visual/imagem do produto (0 a 100).\n\n" .
-                      "REGRAS:\n" .
-                      "1. NÃO inclua o texto dentro do box.\n" .
-                      "2. O box deve envolver toda a imagem do produto, sem cortes.\n" .
-                      "3. Retorne APENAS o JSON puro (array de objetos).";
+                      "- box: [ymin, xmin, ymax, xmax] da EMBALAGEM COMPLETA do produto (0 a 100).\n\n" .
+                      "REGRAS CRÍTICAS:\n" .
+                      "1. O box DEVE envolver o produto INTEIRO, de ponta a ponta, sem cortar as bordas.\n" .
+                      "2. Centralize o produto no box.\n" .
+                      "3. NÃO inclua o texto de descrição no box.\n" .
+                      "4. Retorne APENAS o JSON bruto (array de objetos).";
 
             $reply = $this->ollamaService->chatWithVision($prompt, $imageBase64);
             $products = json_decode($reply, true) ?: (preg_match('/\[.*\]/s', $reply, $m) ? json_decode($m[0], true) : []);
@@ -475,10 +476,18 @@ class AIController
                 if (isset($product['box']) && count($product['box']) === 4) {
                     try {
                         $p = $product['box'];
-                        $y1 = ($p[0] / 100) * $height;
-                        $x1 = ($p[1] / 100) * $width;
-                        $ch = (($p[2] - $p[0]) / 100) * $height;
-                        $cw = (($p[3] - $p[1]) / 100) * $width;
+                        
+                        // Adicionar 5% de margem de segurança para evitar cortes
+                        $padding = 5;
+                        $ymin = max(0, $p[0] - $padding);
+                        $xmin = max(0, $p[1] - $padding);
+                        $ymax = min(100, $p[2] + $padding);
+                        $xmax = min(100, $p[3] + $padding);
+
+                        $y1 = ($ymin / 100) * $height;
+                        $x1 = ($xmin / 100) * $width;
+                        $ch = (($ymax - $ymin) / 100) * $height;
+                        $cw = (($xmax - $xmin) / 100) * $width;
 
                         $crop = clone $img;
                         $crop->crop((int)round($cw), (int)round($ch), (int)round($x1), (int)round($y1));
